@@ -19,16 +19,12 @@ const (
 	// codegen annotations
 	apiGenAnnotation       = "apigen:api"
 	apiValidatorAnnotation = "apivalidator"
-	// header of target generated file
-// 	header = `//generated content. do not edit
-// package main
-
-// import "net/http"
-// `
 )
 
-type StructReceiver = string
-type Methods = []*ApiGen
+type (
+	StructReceiver = string
+	Methods        = []*ApiGen
+)
 
 type ApiGen struct {
 	Url      string `json:"url"`
@@ -36,6 +32,11 @@ type ApiGen struct {
 	Method   string `json:"method"`
 	Target   *ast.FuncDecl
 	receiver string
+}
+
+type StructValidator struct {
+	FieldName  string
+	Validators []string
 }
 
 func loadTemplate(tplPath string) *template.Template {
@@ -78,11 +79,14 @@ func isStructCodegen(a ast.Decl) (*ast.TypeSpec, bool) {
 				if currStruct, ok := currType.Type.(*ast.StructType); !ok { // `spec.(*ast.TypeSpec)` ->  `currType.Type.(*ast.StructType)`
 					continue
 				} else {
+					// res :=
 					for _, field := range currStruct.Fields.List { // search any field contains codegen marker
 						if field.Tag != nil && strings.Contains(field.Tag.Value, apiValidatorAnnotation) {
+							fmt.Println("field:", field.Names[0], "validator:", field.Tag.Value)
 							return currType, true
 						}
 					}
+
 				}
 			}
 		}
@@ -133,7 +137,7 @@ func handleStructsCodegen(structs []*ast.TypeSpec, out *os.File, templ *template
 		panic("failed to process template: " + err.Error())
 	}
 	for _, s := range structs {
-		fmt.Printf("%#v\n", s)
+		fmt.Printf("%#v\n", s.Type.(*ast.StructType).Fields)
 	}
 }
 
@@ -143,10 +147,6 @@ func main() {
 	funcsForCodegen, structsForCodegen := parseSourceFile()
 	out, _ := os.Create(os.Args[2])
 	defer out.Close()
-
-	// if _, err := out.WriteString(header); err != nil {
-	// 	panic("failed to write target content. Err: " + err.Error())
-	// }
 
 	handleFuncsCodegen(funcsForCodegen, out, handlerTemplate)
 	handleStructsCodegen(structsForCodegen, out, validatorTemplate)

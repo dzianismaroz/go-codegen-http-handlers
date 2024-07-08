@@ -1,9 +1,13 @@
-// ------------------- Validators --------------------
+// ------------------- Validators -------------------- {{if .}}{{range $i, $s := .}}
 
-{{if .}}
-{{range $i, $s := .}}
-    {{$s.Name.Name}}
-{{end}}
+    func (s *{{$s.Name.Name}}) extract(r *http.Request) {
 
-{{end}}
+    }
+
+    func (s *{{$s.Name.Name}}) validate() error {
+        return nil
+    }{{end}}{{end}}
+
+
+
 
