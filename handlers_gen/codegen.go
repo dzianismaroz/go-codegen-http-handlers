@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -19,11 +20,11 @@ const (
 	apiGenAnnotation       = "apigen:api"
 	apiValidatorAnnotation = "apivalidator"
 	// header of target generated file
-	header = `//generated content. do not edit
-package main
+// 	header = `//generated content. do not edit
+// package main
 
-import "net/http"
-`
+// import "net/http"
+// `
 )
 
 type StructReceiver = string
@@ -33,7 +34,7 @@ type ApiGen struct {
 	Url      string `json:"url"`
 	Auth     bool   `json:"auth"`
 	Method   string `json:"method"`
-	target   *ast.FuncDecl
+	Target   *ast.FuncDecl
 	receiver string
 }
 
@@ -52,14 +53,13 @@ func isFuncCodegen(a ast.Decl) (*ApiGen, bool) {
 	} else {
 		for _, comment := range f.Doc.List {
 			if strings.Contains(comment.Text, apiGenAnnotation) {
-				api, err := exctractApiGenAnnotation(f)
-				if err != nil {
+				if api, err := exctractApiGenAnnotation(f); err != nil {
 					panic("failed to parse annotation on" + comment.Text)
-
+				} else {
+					api.Target = f
+					api.receiver = f.Recv.List[0].Type.(*ast.StarExpr).X.(*ast.Ident).Name
+					return api, true
 				}
-				api.target = f
-				api.receiver = f.Recv.List[0].Type.(*ast.StarExpr).X.(*ast.Ident).Name
-				return api, true
 			}
 		}
 		return nil, false
@@ -67,9 +67,9 @@ func isFuncCodegen(a ast.Decl) (*ApiGen, bool) {
 }
 
 // Parse AST node : it must be of type struct and contain any field with codegen marker: 'apivalidator'.
-func isStructCodegen(a ast.Decl) bool {
+func isStructCodegen(a ast.Decl) (*ast.TypeSpec, bool) {
 	if f, isGen := a.(*ast.GenDecl); !isGen { // `node.Decls` -> `ast.GenDecl`
-		return false
+		return nil, false
 	} else { //
 		for _, spec := range f.Specs {
 			if currType, ok := spec.(*ast.TypeSpec); !ok { // `ast.GenDecl` -> `spec.(*ast.TypeSpec)`
@@ -80,19 +80,19 @@ func isStructCodegen(a ast.Decl) bool {
 				} else {
 					for _, field := range currStruct.Fields.List { // search any field contains codegen marker
 						if field.Tag != nil && strings.Contains(field.Tag.Value, apiValidatorAnnotation) {
-							return true
+							return currType, true
 						}
 					}
 				}
 			}
 		}
-		return false
+		return nil, false
 	}
 }
 
-func parseSourceFile() (funcsForCodegen map[StructReceiver]Methods, structsForCodegen []ast.Decl) {
+func parseSourceFile() (funcsForCodegen map[StructReceiver]Methods, structsForCodegen []*ast.TypeSpec) {
 	funcsForCodegen = make(map[StructReceiver]Methods, 10)
-	structsForCodegen = make([]ast.Decl, 0, 50)
+	structsForCodegen = make([]*ast.TypeSpec, 0, 50)
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, os.Args[1], nil, parser.ParseComments)
 
@@ -104,8 +104,8 @@ func parseSourceFile() (funcsForCodegen map[StructReceiver]Methods, structsForCo
 		if fn, ok := isFuncCodegen(f); ok {
 			funcsForCodegen[fn.receiver] = append(funcsForCodegen[fn.receiver], fn)
 		}
-		if isStructCodegen(f) {
-			structsForCodegen = append(structsForCodegen, f)
+		if st, ok := isStructCodegen(f); ok {
+			structsForCodegen = append(structsForCodegen, st)
 		}
 	}
 	return
@@ -121,30 +121,33 @@ func exctractApiGenAnnotation(f *ast.FuncDecl) (api *ApiGen, err error) {
 
 // Genereate required code for funcions.
 func handleFuncsCodegen(funcs map[StructReceiver][]*ApiGen, out *os.File, templ *template.Template) {
-	// fns := make(map[string])
-	for receiver, apis := range funcs {
-		if err := templ.Execute(out, api); err != nil {
-			panic("failed to process template: " + err.Error())
-		}
+	if err := templ.Execute(out, funcs); err != nil {
+		panic("failed to process template: " + err.Error())
 	}
 }
 
 // Genereate required code for structs validation.
-func handleStructsCodegen(funcs []ast.Decl, out *os.File, templ *template.Template) {
+func handleStructsCodegen(structs []*ast.TypeSpec, out *os.File, templ *template.Template) {
+
+	if err := templ.Execute(out, structs); err != nil {
+		panic("failed to process template: " + err.Error())
+	}
+	for _, s := range structs {
+		fmt.Printf("%#v\n", s)
+	}
 }
 
 func main() {
 	handlerTemplate := loadTemplate(handlerTplPath)
-	validatorTemplate := loadTemplate(validatorTplPath) // load template for code generate from source file
+	validatorTemplate := loadTemplate(validatorTplPath)
 	funcsForCodegen, structsForCodegen := parseSourceFile()
 	out, _ := os.Create(os.Args[2])
 	defer out.Close()
 
-	if _, err := out.WriteString(header); err != nil {
-		panic(" error while writing target content: " + err.Error())
-	}
+	// if _, err := out.WriteString(header); err != nil {
+	// 	panic("failed to write target content. Err: " + err.Error())
+	// }
 
 	handleFuncsCodegen(funcsForCodegen, out, handlerTemplate)
 	handleStructsCodegen(structsForCodegen, out, validatorTemplate)
-
 }

@@ -1,15 +1,9 @@
-package main
+// ------------------- Validators --------------------
 
-// serveHTTP implementation
+{{if .}}
+{{range $i, $s := .}}
+    {{$s.Name.Name}}
+{{end}}
 
+{{end}}
 
-// Authorization
-
-// GET/POST verification
-
-
-// Params validation
-
-// Process Params
-
-// handle errors

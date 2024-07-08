@@ -17,12 +17,3 @@ func main() {
 	fmt.Println("starting server at :8080")
 	http.ListenAndServe(":8080", nil)
 }
-
-func (h *SomeStructName) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	switch r.URL.Path {
-	case "...":
-		h.wrapperDoSomeJob(w, r)
-	default:
-		w.WriteHeader(http.StatusNotFound)
-	}
-}
