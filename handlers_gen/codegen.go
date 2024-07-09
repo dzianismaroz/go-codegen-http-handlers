@@ -9,39 +9,25 @@ import (
 	"html/template"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 )
 
 const (
 	// template paths
-	validatorTplPath = "./handlers_gen/templates/api_validator.tpl"
-	handlerTplPath   = "./handlers_gen/templates/func_handler.tpl"
+	validatorTplPath = "./handlers_gen/templates/api_validator.tmpl"
+	handlerTplPath   = "./handlers_gen/templates/func_handler.tmpl"
 	// codegen annotations
 	apiGenAnnotation       = "apigen:api"
-	apiValidatorAnnotation = "apivalidator"
+	apiValidatorAnnotation = "apivalidator:"
+	// types of validated struct fields
+	StringFieldType FieldType = false
+	IntFieldType    FieldType = true
 )
-
-type (
-	StructReceiver = string
-	Methods        = []*ApiGen
-)
-
-type ApiGen struct {
-	Url      string `json:"url"`
-	Auth     bool   `json:"auth"`
-	Method   string `json:"method"`
-	Target   *ast.FuncDecl
-	receiver string
-}
-
-type StructValidator struct {
-	FieldName  string
-	Validators []string
-}
 
 func loadTemplate(tplPath string) *template.Template {
 	if templ, err := template.ParseFiles(tplPath); err != nil {
-		panic("failed to parse templates:" + tplPath)
+		panic(fmt.Sprintf("failed to parse templates: %s", tplPath))
 	} else {
 		return templ
 	}
@@ -55,10 +41,11 @@ func isFuncCodegen(a ast.Decl) (*ApiGen, bool) {
 		for _, comment := range f.Doc.List {
 			if strings.Contains(comment.Text, apiGenAnnotation) {
 				if api, err := exctractApiGenAnnotation(f); err != nil {
-					panic("failed to parse annotation on" + comment.Text)
+					panic(fmt.Sprintf("failed to parse annotation on %s", comment.Text))
 				} else {
 					api.Target = f
-					api.receiver = f.Recv.List[0].Type.(*ast.StarExpr).X.(*ast.Ident).Name
+					api.ArgType = f.Type.Params.List[1].Type
+					api.receiver = f.Recv.List[0].Type.(*ast.StarExpr).X.(*ast.Ident).Name // name of struct-receiver
 					return api, true
 				}
 			}
@@ -68,7 +55,7 @@ func isFuncCodegen(a ast.Decl) (*ApiGen, bool) {
 }
 
 // Parse AST node : it must be of type struct and contain any field with codegen marker: 'apivalidator'.
-func isStructCodegen(a ast.Decl) (*ast.TypeSpec, bool) {
+func isStructCodegen(a ast.Decl) (*StructValidator, bool) {
 	if f, isGen := a.(*ast.GenDecl); !isGen { // `node.Decls` -> `ast.GenDecl`
 		return nil, false
 	} else { //
@@ -80,13 +67,17 @@ func isStructCodegen(a ast.Decl) (*ast.TypeSpec, bool) {
 					continue
 				} else {
 					// res :=
+					var result = &StructValidator{
+						StructName: currType.Name.Name,
+						Validators: make(map[FieldName]*FieldValidator, len(currStruct.Fields.List))}
+					var gotResult bool
 					for _, field := range currStruct.Fields.List { // search any field contains codegen marker
 						if field.Tag != nil && strings.Contains(field.Tag.Value, apiValidatorAnnotation) {
-							fmt.Println("field:", field.Names[0], "validator:", field.Tag.Value)
-							return currType, true
+							result.Validators[field.Names[0].Name] = produceValidator(field)
+							gotResult = true
 						}
 					}
-
+					return result, gotResult
 				}
 			}
 		}
@@ -94,9 +85,53 @@ func isStructCodegen(a ast.Decl) (*ast.TypeSpec, bool) {
 	}
 }
 
-func parseSourceFile() (funcsForCodegen map[StructReceiver]Methods, structsForCodegen []*ast.TypeSpec) {
+func produceValidator(f *ast.Field) (result *FieldValidator) {
+	tag := f.Tag.Value
+	if len(tag) < 10 {
+		return nil
+	}
+	tag = strings.ReplaceAll(tag, apiValidatorAnnotation, "")
+	tag = strings.ReplaceAll(tag, "\"", "")
+	tag = strings.ReplaceAll(tag, "`", "")
+	validators := strings.Split(tag, ",")
+	result = &FieldValidator{FieldType: f.Type.(*ast.Ident).Name == "int", ParamName: strings.ToLower(f.Names[0].Name)}
+
+	for i := 0; i < len(validators); i++ {
+		v := validators[i]
+		if !strings.Contains(v, "=") && v == "required" {
+			result.Required = true
+			continue
+		}
+		kv := strings.Split(v, "=")
+		switch kv[0] {
+		case "paramname":
+			result.ParamName = kv[1]
+		case "default":
+			result.Default = kv[1]
+		case "min":
+			if intVal, err := strconv.Atoi(kv[1]); err != nil {
+				panic("invalid int value for validator `min`:" + kv[1])
+			} else {
+				result.Min = intVal
+			}
+		case "max":
+			if intVal, err := strconv.Atoi(kv[1]); err != nil {
+				panic("invalid int value for validator `max`:" + kv[1])
+			} else {
+				result.Max = intVal
+			}
+		case "enum":
+			result.Enum = strings.Split(kv[1], "|")
+		default:
+			panic("unknown validator : " + kv[0])
+		}
+	}
+	return
+}
+
+func parseSourceFile() (funcsForCodegen map[StructReceiver]Methods, structsForCodegen []*StructValidator) {
 	funcsForCodegen = make(map[StructReceiver]Methods, 10)
-	structsForCodegen = make([]*ast.TypeSpec, 0, 50)
+	structsForCodegen = make([]*StructValidator, 0, 50)
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, os.Args[1], nil, parser.ParseComments)
 
@@ -104,9 +139,11 @@ func parseSourceFile() (funcsForCodegen map[StructReceiver]Methods, structsForCo
 		log.Fatal(err)
 	}
 
+	var structReceiver StructReceiver
 	for _, f := range node.Decls {
 		if fn, ok := isFuncCodegen(f); ok {
-			funcsForCodegen[fn.receiver] = append(funcsForCodegen[fn.receiver], fn)
+			structReceiver = fn.receiver // use as key a name of struct - receiver of the method
+			funcsForCodegen[structReceiver] = append(funcsForCodegen[structReceiver], fn)
 		}
 		if st, ok := isStructCodegen(f); ok {
 			structsForCodegen = append(structsForCodegen, st)
@@ -126,18 +163,14 @@ func exctractApiGenAnnotation(f *ast.FuncDecl) (api *ApiGen, err error) {
 // Genereate required code for funcions.
 func handleFuncsCodegen(funcs map[StructReceiver][]*ApiGen, out *os.File, templ *template.Template) {
 	if err := templ.Execute(out, funcs); err != nil {
-		panic("failed to process template: " + err.Error())
+		panic(fmt.Errorf("failed to process template: %s", err.Error()))
 	}
 }
 
 // Genereate required code for structs validation.
-func handleStructsCodegen(structs []*ast.TypeSpec, out *os.File, templ *template.Template) {
-
+func handleStructsCodegen(structs []*StructValidator, out *os.File, templ *template.Template) {
 	if err := templ.Execute(out, structs); err != nil {
-		panic("failed to process template: " + err.Error())
-	}
-	for _, s := range structs {
-		fmt.Printf("%#v\n", s.Type.(*ast.StructType).Fields)
+		panic(fmt.Errorf("failed to process template: %s", err.Error()))
 	}
 }
 

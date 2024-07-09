@@ -1,0 +1,70 @@
+// ------------------- Validators --------------------
+{{if .}}
+ {{- range $i, $s := .}}
+
+    func (s *{{$s.StructName}}) extract(r *http.Request) {
+        query := r.URL.Query()
+      {{- range $paramName , $validator := .Validators }}
+        //extract param `{{$paramName}}`
+      {{- if $validator.FieldType }}
+        if intVal, err := strconv.Atoi(query.Get("{{$validator.ParamName}}")); err != nil {
+            panic(fmt.Sprintf("invalid int value [%s] for param `{{$validator.ParamName}}`", query.Get("{{$validator.ParamName}}")))
+        } else {
+            s.{{$paramName}} = intVal
+        }
+      {{- else }}
+        s.{{$paramName}} = query.Get("{{$validator.ParamName}}")
+      {{- end -}}
+     {{end}}
+        s.validate()
+    }
+
+    func (s *{{$s.StructName}}) validate() error {
+     {{- range $paramName , $validator :=  .Validators }}
+    {{- if $validator.Required }}
+    // validate required param
+       if s.{{$paramName}} == "" {
+         panic("empty required param `{{$validator.ParamName}}`")
+       }
+    {{- end -}}
+    {{- if $validator.HasEnumConstraint }}
+    // validate enumerated constraint
+       if !strings.Contains("{{$validator.StringifyEnum}}", s.{{$paramName}}) {
+           panic(fmt.Sprintf("invalid value [%s] of param `{{$validator.ParamName}}`", s.{{$paramName}}))
+       }
+    {{- end -}}
+
+    {{- if $validator.HasMinConstraint }}
+    // validate min constraint
+       {{- if $validator.FieldType }}
+        if {{$validator.Min}} > s.{{$paramName}}  {
+           panic(fmt.Sprintf("invalid min value [%d] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+        }
+        {{- else}}
+        if {{$validator.Min}} > len(s.{{$paramName}})  {
+           panic(fmt.Sprintf("invalid min length [%s] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+        }
+       {{- end }}
+    {{- end -}}
+
+    {{- if $validator.HasMaxConstraint }}
+    // validate max constraint
+        {{- if $validator.FieldType }}
+        if s.{{$paramName}} > {{$validator.Max}} {
+           panic(fmt.Sprintf("invalid max value [%d] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+        }
+        {{- else}}
+        if len(s.{{$paramName}}) > {{$validator.Max}} {
+           panic(fmt.Sprintf("invalid max length [%s] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+        }
+        {{- end}}
+    {{- end -}}
+     {{end}}
+       return nil
+    }
+ {{- end}}
+{{- end}}
+
+
+
+

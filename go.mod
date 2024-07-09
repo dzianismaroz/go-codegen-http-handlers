@@ -1,3 +1,3 @@
-module main
+module hwcodegen
 
 go 1.22

@@ -1,0 +1,50 @@
+// Dzianis Maroz solution.
+// Automatically generated. Do not edit
+package main
+
+import (
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+)
+
+const (
+    validAuthToken = "100500"
+    authHeader = "X-Auth"
+)
+
+func isAuthorized(r *http.Request) bool {
+	return r.Header.Get(authHeader) == validAuthToken
+}
+
+// ------------------- HTTP handlers --------------------
+{{ if .}}
+ {{range $k , $v :=  . -}}
+
+func (h *{{$k}} ) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    switch r.URL.Path {
+        {{- range $i, $api := $v}}
+    case "{{$api.Url}}":
+        {{- if ne $api.Method  "" }}
+        if r.Method != "{{$api.Method}}" {
+            http.Error(w, "not found", 404)
+            return
+        }
+        {{- end}}
+        {{- if $api.Auth }}
+        if !isAuthorized(r) {
+            http.Error(w, "unauthorized", 401)
+            return
+        }
+        {{- end}}
+        params := {{$api.ArgType}}{}
+		params.extract(r)
+        h.{{$api.Target.Name.Name}}(r.Context(), params)
+        {{- end}}
+    default:
+        w.WriteHeader(http.StatusNotFound)
+    }
+}
+ {{ end}}
+{{ end}}
