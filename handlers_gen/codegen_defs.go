@@ -37,7 +37,7 @@ func (fv *FieldValidator) HasEnumConstraint() bool {
 }
 
 func (fv *FieldValidator) HasMinConstraint() bool {
-	return fv.Min > 0
+	return fv.Min >= 0
 }
 
 func (fv *FieldValidator) HasMaxConstraint() bool {
@@ -45,7 +45,11 @@ func (fv *FieldValidator) HasMaxConstraint() bool {
 }
 
 func (fv *FieldValidator) StringifyEnum() string {
-	return strings.Join(fv.Enum, " ")
+	return strings.Join(fv.Enum, ", ")
+}
+
+func (fv *FieldValidator) HasDefault() bool {
+	return fv.Default != nil
 }
 
 type StructValidator struct {

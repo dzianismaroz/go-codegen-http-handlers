@@ -2,47 +2,89 @@
 {{if .}}
  {{- range $i, $s := .}}
 
-    func (s *{{$s.StructName}}) extract(r *http.Request) {
-        query := r.URL.Query()
+    func (s *{{$s.StructName}}) extractParams(r *http.Request) *ApiError{
+        var query url.Values
+        if r.Method == http.MethodPost {
+           if len(r.Form) > 0 {
+			query = r.Form
+		} else {
+			bytedata, _ := io.ReadAll(r.Body)
+            r.Body.Close()
+			vals := strings.Split(string(bytedata), "&")
+			queryValues := url.Values{}
+			for i := 0; len(vals) > i; i++ {
+				pair := strings.Split(vals[i], "=")
+				if len(pair) > 1 {
+					queryValues[pair[0]] = []string{pair[1]}
+				}
+			}
+
+			query = queryValues
+		}
+        } else {
+            query = r.URL.Query()
+        }
       {{- range $paramName , $validator := .Validators }}
         //extract param `{{$paramName}}`
       {{- if $validator.FieldType }}
         if intVal, err := strconv.Atoi(query.Get("{{$validator.ParamName}}")); err != nil {
-            panic(fmt.Sprintf("invalid int value [%s] for param `{{$validator.ParamName}}`", query.Get("{{$validator.ParamName}}")))
+            return produceBadRequest("{{$validator.ParamName}} must be int")
         } else {
             s.{{$paramName}} = intVal
         }
       {{- else }}
         s.{{$paramName}} = query.Get("{{$validator.ParamName}}")
       {{- end -}}
+      {{- if $validator.HasDefault }}
+      if query.Get("{{$validator.ParamName}}") == "" {
+        {{- if $validator.FieldType }}
+        s.{{$paramName}} = {{$validator.Default }}
+        {{- else }}
+        s.{{$paramName}} = "{{$validator.Default }}"
+      {{- end -}}
+      }
+      {{- end}}
      {{end}}
-        s.validate()
+        return s.validate()
     }
 
-    func (s *{{$s.StructName}}) validate() error {
+    func (s *{{$s.StructName}}) validate() *ApiError {
      {{- range $paramName , $validator :=  .Validators }}
     {{- if $validator.Required }}
     // validate required param
        if s.{{$paramName}} == "" {
-         panic("empty required param `{{$validator.ParamName}}`")
+         return produceBadRequest("{{$validator.ParamName}} must me not empty")
        }
     {{- end -}}
     {{- if $validator.HasEnumConstraint }}
     // validate enumerated constraint
-       if !strings.Contains("{{$validator.StringifyEnum}}", s.{{$paramName}}) {
-           panic(fmt.Sprintf("invalid value [%s] of param `{{$validator.ParamName}}`", s.{{$paramName}}))
+       var matchEnum bool
+       alowedVals := []string{
+       {{ range $i, $enumVal := $validator.Enum -}}
+                                "{{$enumVal}}",
+       {{ end -}}
        }
+       for i:= 0; len(alowedVals) > i; i++{
+         if alowedVals[i] == s.{{$paramName}} {
+               matchEnum = true
+               break
+           }
+       }
+       if !matchEnum {
+           return produceBadRequest("{{$validator.ParamName}} must be one of [{{$validator.StringifyEnum}}]")
+       }
+
     {{- end -}}
 
     {{- if $validator.HasMinConstraint }}
     // validate min constraint
        {{- if $validator.FieldType }}
         if {{$validator.Min}} > s.{{$paramName}}  {
-           panic(fmt.Sprintf("invalid min value [%d] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+           return produceBadRequest(fmt.Sprintf("{{$validator.ParamName}} must be >= %d", {{$validator.Min}}))
         }
         {{- else}}
         if {{$validator.Min}} > len(s.{{$paramName}})  {
-           panic(fmt.Sprintf("invalid min length [%s] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+           return produceBadRequest(fmt.Sprintf("{{$validator.ParamName}} len must be >= %d", {{$validator.Min}}))
         }
        {{- end }}
     {{- end -}}
@@ -51,11 +93,11 @@
     // validate max constraint
         {{- if $validator.FieldType }}
         if s.{{$paramName}} > {{$validator.Max}} {
-           panic(fmt.Sprintf("invalid max value [%d] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+           return produceBadRequest(fmt.Sprintf("{{$validator.ParamName}} must be <= %d", {{$validator.Max}}))
         }
         {{- else}}
         if len(s.{{$paramName}}) > {{$validator.Max}} {
-           panic(fmt.Sprintf("invalid max length [%s] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
+           return produceBadRequest(fmt.Sprintf("invalid max length [%s] for param `{{$validator.ParamName}}`", s.{{$paramName}}))
         }
         {{- end}}
     {{- end -}}

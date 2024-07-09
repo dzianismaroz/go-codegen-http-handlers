@@ -1,10 +1,18 @@
-// Dzianis Maroz solution.
-// Automatically generated. Do not edit
+/*
+    author: Dzianis Maroz
+    warning: Automatically generated. Do not edit
+
+ */
+
 package main
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -14,36 +22,80 @@ const (
     authHeader = "X-Auth"
 )
 
+type Response struct{
+    Err error `json:"error,omitempty"`
+    Resp interface{} `json:"response"`
+}
+
 func isAuthorized(r *http.Request) bool {
 	return r.Header.Get(authHeader) == validAuthToken
+}
+
+func (a *ApiError) Stringify() string {
+	return fmt.Sprintf("{\"error\":\"%s\"}", a.Err.Error())
+}
+
+func handleError(w http.ResponseWriter, apiError *ApiError) {
+	http.Error(w, apiError.Stringify(), apiError.HTTPStatus)
+}
+
+func produceBadRequest( reason string) *ApiError{
+    return &ApiError{Err: errors.New(reason), HTTPStatus: http.StatusBadRequest}
 }
 
 // ------------------- HTTP handlers --------------------
 {{ if .}}
  {{range $k , $v :=  . -}}
 
-func (h *{{$k}} ) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-    switch r.URL.Path {
-        {{- range $i, $api := $v}}
-    case "{{$api.Url}}":
-        {{- if ne $api.Method  "" }}
+{{- range $i, $api := $v}}
+func (h *{{$k}} ) execute{{$api.Target.Name.Name}}(w http.ResponseWriter, r *http.Request) {
+ {{- if ne $api.Method  "" }}
         if r.Method != "{{$api.Method}}" {
-            http.Error(w, "not found", 404)
+            handleError(w, &ApiError{Err: errors.New("bad method"), HTTPStatus: http.StatusNotAcceptable})
             return
         }
         {{- end}}
         {{- if $api.Auth }}
         if !isAuthorized(r) {
-            http.Error(w, "unauthorized", 401)
+            handleError(w, &ApiError{Err: errors.New("unauthorized"), HTTPStatus: http.StatusForbidden})
             return
         }
         {{- end}}
         params := {{$api.ArgType}}{}
-		params.extract(r)
-        h.{{$api.Target.Name.Name}}(r.Context(), params)
+	    errApi := params.extractParams(r)
+        if errApi != nil {
+            handleError(w, errApi)
+            return
+        }
+        user, err := h.{{$api.Target.Name.Name}}(r.Context(), params)
+
+        if err != nil {
+            var apiError ApiError
+
+            if errors.As(err, &apiError) {
+                handleError(w, &apiError)
+                return
+            } else {
+                handleError(w, &ApiError{Err: err, HTTPStatus: http.StatusInternalServerError})
+                return
+            }
+        }
+
+        w.WriteHeader(http.StatusOK)
+	    bytes, _ := json.Marshal(user)
+	    w.Write([]byte(fmt.Sprintf("{\"error\":\"\", \"response\":%s}", bytes)))
+	    return
+	}
+{{- end}}
+
+func (h *{{$k}} ) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+    switch r.URL.Path {
+        {{- range $i, $api := $v}}
+    case "{{$api.Url}}":
+        h.execute{{$api.Target.Name.Name}}(w, r)
         {{- end}}
     default:
-        w.WriteHeader(http.StatusNotFound)
+       handleError(w, &ApiError{Err: errors.New("unknown method"), HTTPStatus: http.StatusNotFound})
     }
 }
  {{ end}}

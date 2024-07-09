@@ -6,11 +6,11 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"html/template"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"text/template"
 )
 
 const (
