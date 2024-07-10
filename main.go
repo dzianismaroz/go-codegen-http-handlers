@@ -1,9 +1,9 @@
 package main
 
-// это программа для которой ваш кодогенератор будет писать код
-// запускать через go test -v, как обычно
+// this is the program for which your code generator will write code
+// run via go test -v as usual
 
-// этот код закомментирован чтобы он не светился в тестовом покрытии
+// this code is commented out so that it does not appear in the test coverage
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	// будет вызван метод ServeHTTP у структуры MyApi
+	// the ServeHTTP method will be called on the MyApi structure
 	http.Handle("/user/", NewMyApi())
 
 	fmt.Println("starting server at :8080")

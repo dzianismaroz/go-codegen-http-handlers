@@ -6,7 +6,7 @@ import (
 )
 
 type (
-	StructReceiver = string    // name of struct- receiver of method to be codegen ( used as key in map)
+	StructReceiver = string    // name of struct-receiver of method to be codegen ( used as key in map)
 	FieldName      = string    // name of field to apply validator
 	Methods        = []*ApiGen // methods resolved to be used for coedegen
 	FieldType      = bool      // type of struct field to apply validation and pass value from request
@@ -44,7 +44,7 @@ func (fv *FieldValidator) HasMaxConstraint() bool {
 	return fv.Max > 0
 }
 
-func (fv *FieldValidator) StringifyEnum() string {
+func (fv *FieldValidator) StringifyEnum() string { // Usefull for generating string slice literal
 	return strings.Join(fv.Enum, ", ")
 }
 

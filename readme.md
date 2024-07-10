@@ -1,3 +1,16 @@
+```
+Solution result :
+
+go test -v
+=== RUN   TestMyApi
+--- PASS: TestMyApi (0.00s)
+=== RUN   TestOtherApi
+--- PASS: TestOtherApi (0.00s)
+PASS
+ok      hwcodegen       0.005s
+
+```
+
 Code generation is very widely used in Go and you need to know how to use this tool.
 
 In this task, you will need to write a code generator that looks for structure methods marked with a special label and generates the following code for them:

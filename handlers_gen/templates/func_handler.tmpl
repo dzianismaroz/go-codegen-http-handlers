@@ -20,23 +20,15 @@ import (
 const (
     validAuthToken = "100500"
     authHeader = "X-Auth"
+    errorResponsePattern = "{\"error\":\"\", \"response\":%s}"
 )
-
-type Response struct{
-    Err error `json:"error,omitempty"`
-    Resp interface{} `json:"response"`
-}
 
 func isAuthorized(r *http.Request) bool {
 	return r.Header.Get(authHeader) == validAuthToken
 }
 
-func (a *ApiError) Stringify() string {
-	return fmt.Sprintf("{\"error\":\"%s\"}", a.Err.Error())
-}
-
 func handleError(w http.ResponseWriter, apiError *ApiError) {
-	http.Error(w, apiError.Stringify(), apiError.HTTPStatus)
+	http.Error(w, fmt.Sprintf("{\"error\":\"%s\"}", apiError.Err.Error()), apiError.HTTPStatus)
 }
 
 func produceBadRequest( reason string) *ApiError{
@@ -83,7 +75,7 @@ func (h *{{$k}} ) execute{{$api.Target.Name.Name}}(w http.ResponseWriter, r *htt
 
         w.WriteHeader(http.StatusOK)
 	    bytes, _ := json.Marshal(user)
-	    w.Write([]byte(fmt.Sprintf("{\"error\":\"\", \"response\":%s}", bytes)))
+	    w.Write([]byte(fmt.Sprintf(errorResponsePattern, bytes)))
 	    return
 	}
 {{- end}}
